@@ -236,6 +236,7 @@ void XprotolabInterface::setTheme(int theme, CustomColors *customColors) {
         textLabelDeltaVoltage->setColor("#4be51c");
         textLabelVoltageB->setColor("#4be51c");
         textLabelVoltageA->setColor("#4be51c");
+        textLabelMousePos->setColor("#9c9c9c");
     } else if(theme == Light) {
         /************** Graph Pens **********/
         ch1Pen = QPen(QColor("#2a50fd"), 2);
@@ -291,6 +292,7 @@ void XprotolabInterface::setTheme(int theme, CustomColors *customColors) {
         textLabelDeltaVoltage->setColor(Qt::red);
         textLabelVoltageB->setColor(Qt::red);
         textLabelVoltageA->setColor(Qt::red);
+        textLabelMousePos->setColor(Qt::red);
     } else if(theme == Custom) {
         /************** Graph Pens **********/
         ch1Pen = QPen(customColors->ch1, 2);
@@ -345,6 +347,7 @@ void XprotolabInterface::setTheme(int theme, CustomColors *customColors) {
         textLabelDeltaVoltage->setColor(customColors->label);
         textLabelVoltageB->setColor(customColors->label);
         textLabelVoltageA->setColor(customColors->label);
+        textLabelMousePos->setColor(customColors->label);
     }
     on_intensitySlider_valueChanged(0);
     ui->plotterWidget->replot();
@@ -605,6 +608,15 @@ void XprotolabInterface::setupItemLabels(QCustomPlot *customPlot) {
     textLabelVoltageA->setFont(m_monospaceFont);
     textLabelVoltageA->setSelectable(false);
     textLabelVoltageA->setVisible(false);
+    textLabelMousePos = new QCPItemText(customPlot);
+    customPlot->addItem(textLabelMousePos);
+    textLabelMousePos->position->setCoords(100, 10);
+    textLabelMousePos->setPositionAlignment(Qt::AlignLeft);
+    textLabelMousePos->setText("");
+    textLabelMousePos->setFont(m_monospaceFont);
+    textLabelMousePos->setSelectable(false);
+    textLabelMousePos->setVisible(true);
+    customPlot->setCursor(Qt::CrossCursor);
 }
 
 int XprotolabInterface::checkValue(int value) {
@@ -1088,20 +1100,15 @@ ENDSCAN:
         textLabelFrequency->setVisible(false);
     }
     if(!ui->radioButtonCursorNone->isChecked()) {
-        double deltaVolt, voltA = 0, voltB = 0, value = 0;
-        QString unit;
-        if(ui->radioButtonCursorCH1->isChecked())
-            unit = gainText[ui->ch1GainSlider->value()];
-        else if(ui->radioButtonCursorCH2->isChecked())
-            unit = gainText[ui->ch2GainSlider->value()];
-        for(int i = 0; i < unit.length(); i++) {
-            if(unit[i] == 'm' || unit[i] == 'V') {
-                value = unit.left(i).toDouble();
-                unit = unit.remove(unit.left(i));
-                break;
-            }
+        double deltaVolt, voltA = 0, voltB = 0, gain = 0;
+        QString unit = gains[ui->ch1GainSlider->value()].unit;
+        if(ui->radioButtonCursorCH1->isChecked()) {
+            unit = gains[ui->ch1GainSlider->value()].unit;
+            gain = gains[ui->ch1GainSlider->value()].value;
+        } else if(ui->radioButtonCursorCH2->isChecked()) {
+            unit = gains[ui->ch2GainSlider->value()].unit;
+            gain = gains[ui->ch1GainSlider->value()].value;
         }
-        unit = unit.replace("/div", "");
         if(ui->radioButtonCursorCH1->isChecked()) {
             voltA = 64 - (127 - (hCursorAPosCh1 / 4));
             voltB = 64 - (127 - (hCursorBPosCh1 / 4));
@@ -1109,8 +1116,8 @@ ENDSCAN:
             voltA = 64 - (127 - (hCursorAPosCh2 / 4));
             voltB = 64 - (127 - (hCursorBPosCh2 / 4));
         }
-        voltA *= value;
-        voltB *= value;
+        voltA *= gain;
+        voltB *= gain;
         voltA /= 16.0;
         voltB /= 16.0;
         deltaVolt = voltB - voltA;
@@ -1184,8 +1191,6 @@ ENDSCAN:
 }
 
 void XprotolabInterface::moveCursor(QMouseEvent *event) {
-    if(!(event->buttons() & Qt::LeftButton) || currentSelected == isNone)
-        return;
     int curPos;
     int offset;
     if(ui->comboBoxTrigSource->currentIndex() == 0)
@@ -1193,156 +1198,180 @@ void XprotolabInterface::moveCursor(QMouseEvent *event) {
     else
         offset = ui->ch2PositionSlider->value();
     if(event->type() == QMouseEvent::MouseMove) {
-        if(currentSelected == isHCursorAHead) {
-            hCursorAPos = ui->plotterWidget->yAxis->pixelToCoord(event->y());
-            curPos = event->y();
-            if(curPos > ui->plotterWidget->visibleRegion().boundingRect().bottom() - 16)
-                curPos = ui->plotterWidget->visibleRegion().boundingRect().bottom() - 16;
-            else if(curPos < 16)
-                curPos = 16;
-            if(hCursorAPos >= (rangeMax - 8))
-                hCursorAPos = rangeMax - 8;
-            else if(hCursorAPos < 8)
-                hCursorAPos = 8;
-            hCursorAHead->topLeft->setPixelPoint(QPointF(9, curPos));
-            if(ui->radioButtonCursorCH1->isChecked()) {
-                hCursorAPosCh1 = hCursorAPos - ch1ZeroPos + 256;
-                if(hCursorAPosCh1 >= 512)
-                    hCursorAPosCh1 = 511;
-                else if(hCursorAPosCh1 < 0)
-                    hCursorAPosCh1 = 0;
-                sendHorizontalCursorCH1A();
-            } else if(ui->radioButtonCursorCH2->isChecked()) {
-                hCursorAPosCh2 = hCursorAPos - ch2ZeroPos + 256;
-                if(hCursorAPosCh2 >= 512)
-                    hCursorAPosCh2 = 511;
-                else if(hCursorAPosCh2 < 0)
-                    hCursorAPosCh2 = 0;
-                sendHorizontalCursorCH2A();
+        if(event->buttons() & Qt::LeftButton & (currentSelected != isNone)) {
+            if(currentSelected == isHCursorAHead) {
+                hCursorAPos = ui->plotterWidget->yAxis->pixelToCoord(event->y());
+                curPos = event->y();
+                if(curPos > ui->plotterWidget->visibleRegion().boundingRect().bottom() - 16)
+                    curPos = ui->plotterWidget->visibleRegion().boundingRect().bottom() - 16;
+                else if(curPos < 16)
+                    curPos = 16;
+                if(hCursorAPos >= (rangeMax - 8))
+                    hCursorAPos = rangeMax - 8;
+                else if(hCursorAPos < 8)
+                    hCursorAPos = 8;
+                hCursorAHead->topLeft->setPixelPoint(QPointF(9, curPos));
+                if(ui->radioButtonCursorCH1->isChecked()) {
+                    hCursorAPosCh1 = hCursorAPos - ch1ZeroPos + 256;
+                    if(hCursorAPosCh1 >= 512)
+                        hCursorAPosCh1 = 511;
+                    else if(hCursorAPosCh1 < 0)
+                        hCursorAPosCh1 = 0;
+                    sendHorizontalCursorCH1A();
+                } else if(ui->radioButtonCursorCH2->isChecked()) {
+                    hCursorAPosCh2 = hCursorAPos - ch2ZeroPos + 256;
+                    if(hCursorAPosCh2 >= 512)
+                        hCursorAPosCh2 = 511;
+                    else if(hCursorAPosCh2 < 0)
+                        hCursorAPosCh2 = 0;
+                    sendHorizontalCursorCH2A();
+                }
+            } else if(currentSelected == isHCursorBHead) {
+                hCursorBPos = ui->plotterWidget->yAxis->pixelToCoord(event->y());
+                curPos = event->y();
+                if(curPos > ui->plotterWidget->visibleRegion().boundingRect().bottom() - 16)
+                    curPos = ui->plotterWidget->visibleRegion().boundingRect().bottom() - 16;
+                else if(curPos < 16)
+                    curPos = 16;
+                if(hCursorBPos >= (rangeMax - 8))
+                    hCursorBPos = rangeMax - 8;
+                else if(hCursorBPos < 8)
+                    hCursorBPos = 8;
+                hCursorBHead->topLeft->setPixelPoint(QPointF(9, curPos));
+                if(ui->radioButtonCursorCH1->isChecked()) {
+                    hCursorBPosCh1 = hCursorBPos - ch1ZeroPos + 256;
+                    if(hCursorBPosCh1 >= 512)
+                        hCursorBPosCh1 = 511;
+                    else if(hCursorBPosCh1 < 0)
+                        hCursorBPosCh1 = 0;
+                    sendHorizontalCursorCH1B();
+                } else if(ui->radioButtonCursorCH2->isChecked()) {
+                    hCursorBPosCh2 = hCursorBPos - ch2ZeroPos + 256;
+                    if(hCursorBPosCh2 >= 512)
+                        hCursorBPosCh2 = 511;
+                    else if(hCursorBPosCh2 < 0)
+                        hCursorBPosCh2 = 0;
+                    sendHorizontalCursorCH2B();
+                }
+            } else if(currentSelected == isVCursorAHead) {
+                vCursorAPos = ui->plotterWidget->xAxis->pixelToCoord(event->x());
+                curPos = event->x() - 16;
+                if(curPos < 0)
+                    curPos = 0;
+                else if(curPos > ui->plotterWidget->visibleRegion().boundingRect().right() - 32)
+                    curPos = ui->plotterWidget->visibleRegion().boundingRect().right() - 32;
+                if(vCursorAPos >= xmax - 1)
+                    vCursorAPos = xmax - 1;
+                else if(vCursorAPos < 0)
+                    vCursorAPos = 0;
+                vCursorAHead->topLeft->setPixelPoint(QPointF(curPos, 10));
+                sendVerticalCursorA();
+            } else if(currentSelected == isVCursorBHead) {
+                vCursorBPos = ui->plotterWidget->xAxis->pixelToCoord(event->x());
+                curPos = event->x() - 16;
+                if(curPos < 0)
+                    curPos = 0;
+                else if(curPos > ui->plotterWidget->visibleRegion().boundingRect().right() - 32)
+                    curPos = ui->plotterWidget->visibleRegion().boundingRect().right() - 32;
+                if(vCursorBPos >= xmax - 1)
+                    vCursorBPos = xmax - 1;
+                else if(vCursorBPos < 0)
+                    vCursorBPos = 0;
+                vCursorBHead->topLeft->setPixelPoint(QPointF(curPos, 10));
+                sendVerticalCursorB();
+            } else if(currentSelected == isCH1Zero) {
+                int value, maxp, minp;
+                maxp = rangeMax * 3 / 4;
+                minp = rangeMax / 4;
+                curPos = event->y();
+                if(curPos > (ui->plotterWidget->yAxis->coordToPixel(minp)))
+                    curPos = ui->plotterWidget->yAxis->coordToPixel(minp);
+                else if(curPos < ui->plotterWidget->yAxis->coordToPixel(maxp))
+                    curPos = ui->plotterWidget->yAxis->coordToPixel(maxp);
+                ch1ZeroHead->topLeft->setPixelPoint(QPointF(2, curPos));
+                value = ui->plotterWidget->yAxis->pixelToCoord(curPos);
+                ui->ch1PositionSlider->setValue(mapRange(value, maxp, minp, 128, -128) * -1);
+            } else if(currentSelected == isCH2Zero) {
+                int value, maxp, minp;
+                maxp = rangeMax * 3 / 4;
+                minp = rangeMax / 4;
+                curPos = event->y();
+                if(curPos > (ui->plotterWidget->yAxis->coordToPixel(minp)))
+                    curPos = ui->plotterWidget->yAxis->coordToPixel(minp);
+                else if(curPos < ui->plotterWidget->yAxis->coordToPixel(maxp))
+                    curPos = ui->plotterWidget->yAxis->coordToPixel(maxp);
+                ch2ZeroHead->topLeft->setPixelPoint(QPointF(2, curPos));
+                value = ui->plotterWidget->yAxis->pixelToCoord(curPos);
+                ui->ch2PositionSlider->setValue(mapRange(value, maxp, minp, 128, -128) * -1);
+            } else if(currentSelected == isTriggerPixmap) {
+                triggerLevel = 511 - ui->plotterWidget->yAxis->pixelToCoord(event->y());
+                triggerLevel += offset;
+                triggerPost = ui->plotterWidget->xAxis->pixelToCoord(event->x());
+                if(triggerPost > 255)
+                    triggerPost = 255;
+                else if(triggerPost < 0)
+                    triggerPost = 0;
+                triggerPost = triggerPost / 2 + ui->horizontalScrollBar->value();
+                setTriggerLevelPosition(event->pos(), Other);
+            } else if(currentSelected == isTriggerWin1Pixmap) {
+                triggerWin1Level = 255 - ui->plotterWidget->yAxis->pixelToCoord(event->y()) / 2;
+                if(triggerWin1Level > triggerWin2Level - 8) {
+                    triggerWin1Level = triggerWin2Level;
+                    return;
+                }
+                triggerPost = ui->plotterWidget->xAxis->pixelToCoord(event->x());
+                if(triggerPost > 255)
+                    triggerPost = 255;
+                else if(triggerPost < 0)
+                    triggerPost = 0;
+                triggerPost = triggerPost / 2 + ui->horizontalScrollBar->value();
+                if(triggerWin1Level < rangeMax / 4)
+                    triggerWin1Level = rangeMax / 4;
+                else if(triggerWin1Level > rangeMax * 3 / 4)
+                    triggerWin1Level = rangeMax * 3 / 4;
+                setTriggerLevelPosition(event->pos(), Window1);
+            } else if(currentSelected == isTriggerWin2Pixmap) {
+                triggerWin2Level = 255 - ui->plotterWidget->yAxis->pixelToCoord(event->y()) / 2;
+                if(triggerWin2Level < triggerWin1Level - 5) {
+                    triggerWin2Level = triggerWin1Level;
+                    return;
+                }
+                triggerPost = ui->plotterWidget->xAxis->pixelToCoord(event->x());
+                if(triggerPost > 255)
+                    triggerPost = 255;
+                else if(triggerPost < 0)
+                    triggerPost = 0;
+                triggerPost = triggerPost / 2 + ui->horizontalScrollBar->value();
+                if(triggerWin2Level < rangeMax / 4)
+                    triggerWin2Level = rangeMax / 4;
+                else if(triggerWin1Level > rangeMax * 3 / 4)
+                    triggerWin2Level = rangeMax * 3 / 4;
+                setTriggerLevelPosition(event->pos(), Window2);
             }
-        } else if(currentSelected == isHCursorBHead) {
-            hCursorBPos = ui->plotterWidget->yAxis->pixelToCoord(event->y());
-            curPos = event->y();
-            if(curPos > ui->plotterWidget->visibleRegion().boundingRect().bottom() - 16)
-                curPos = ui->plotterWidget->visibleRegion().boundingRect().bottom() - 16;
-            else if(curPos < 16)
-                curPos = 16;
-            if(hCursorBPos >= (rangeMax - 8))
-                hCursorBPos = rangeMax - 8;
-            else if(hCursorBPos < 8)
-                hCursorBPos = 8;
-            hCursorBHead->topLeft->setPixelPoint(QPointF(9, curPos));
-            if(ui->radioButtonCursorCH1->isChecked()) {
-                hCursorBPosCh1 = hCursorBPos - ch1ZeroPos + 256;
-                if(hCursorBPosCh1 >= 512)
-                    hCursorBPosCh1 = 511;
-                else if(hCursorBPosCh1 < 0)
-                    hCursorBPosCh1 = 0;
-                sendHorizontalCursorCH1B();
-            } else if(ui->radioButtonCursorCH2->isChecked()) {
-                hCursorBPosCh2 = hCursorBPos - ch2ZeroPos + 256;
-                if(hCursorBPosCh2 >= 512)
-                    hCursorBPosCh2 = 511;
-                else if(hCursorBPosCh2 < 0)
-                    hCursorBPosCh2 = 0;
-                sendHorizontalCursorCH2B();
+            m_repaint = true;
+        } else if(!event->buttons()) {
+            // Mouse move without button
+            double ch1Volts, ch2Volts;
+            auto getVolts = [&](int cursorPos, int chZeroPos, float chGain) {
+                // Lambda function that convers absolute pixels to Volts
+                int absCursorPos = (int) ui->plotterWidget->yAxis->pixelToCoord(cursorPos);  // coordinates in pixels, in range [0, 511]
+                int relativePos = absCursorPos - chZeroPos; // coordinates relative to zero pos, in pixels (can be negative)
+                double voltsPerPixel = chGain / 64;  // There's 64 pixels / div
+                return relativePos * voltsPerPixel;
+            };
+            QString text = "";
+            if(ui->checkBoxCH1Trace->isChecked()) {
+                ch1Volts = getVolts(event->y(), ch1ZeroPos, gains[ui->ch1GainSlider->value()].value);
+                text += get4Digits(ch1Volts) + gains[ui->ch1GainSlider->value()].unit;
             }
-        } else if(currentSelected == isVCursorAHead) {
-            vCursorAPos = ui->plotterWidget->xAxis->pixelToCoord(event->x());
-            curPos = event->x() - 16;
-            if(curPos < 0)
-                curPos = 0;
-            else if(curPos > ui->plotterWidget->visibleRegion().boundingRect().right() - 32)
-                curPos = ui->plotterWidget->visibleRegion().boundingRect().right() - 32;
-            if(vCursorAPos >= xmax - 1)
-                vCursorAPos = xmax - 1;
-            else if(vCursorAPos < 0)
-                vCursorAPos = 0;
-            vCursorAHead->topLeft->setPixelPoint(QPointF(curPos, 10));
-            sendVerticalCursorA();
-        } else if(currentSelected == isVCursorBHead) {
-            vCursorBPos = ui->plotterWidget->xAxis->pixelToCoord(event->x());
-            curPos = event->x() - 16;
-            if(curPos < 0)
-                curPos = 0;
-            else if(curPos > ui->plotterWidget->visibleRegion().boundingRect().right() - 32)
-                curPos = ui->plotterWidget->visibleRegion().boundingRect().right() - 32;
-            if(vCursorBPos >= xmax - 1)
-                vCursorBPos = xmax - 1;
-            else if(vCursorBPos < 0)
-                vCursorBPos = 0;
-            vCursorBHead->topLeft->setPixelPoint(QPointF(curPos, 10));
-            sendVerticalCursorB();
-        } else if(currentSelected == isCH1Zero) {
-            int value, maxp, minp;
-            maxp = rangeMax * 3 / 4;
-            minp = rangeMax / 4;
-            curPos = event->y();
-            if(curPos > (ui->plotterWidget->yAxis->coordToPixel(minp)))
-                curPos = ui->plotterWidget->yAxis->coordToPixel(minp);
-            else if(curPos < ui->plotterWidget->yAxis->coordToPixel(maxp))
-                curPos = ui->plotterWidget->yAxis->coordToPixel(maxp);
-            ch1ZeroHead->topLeft->setPixelPoint(QPointF(2, curPos));
-            value = ui->plotterWidget->yAxis->pixelToCoord(curPos);
-            ui->ch1PositionSlider->setValue(mapRange(value, maxp, minp, 128, -128) * -1);
-        } else if(currentSelected == isCH2Zero) {
-            int value, maxp, minp;
-            maxp = rangeMax * 3 / 4;
-            minp = rangeMax / 4;
-            curPos = event->y();
-            if(curPos > (ui->plotterWidget->yAxis->coordToPixel(minp)))
-                curPos = ui->plotterWidget->yAxis->coordToPixel(minp);
-            else if(curPos < ui->plotterWidget->yAxis->coordToPixel(maxp))
-                curPos = ui->plotterWidget->yAxis->coordToPixel(maxp);
-            ch2ZeroHead->topLeft->setPixelPoint(QPointF(2, curPos));
-            value = ui->plotterWidget->yAxis->pixelToCoord(curPos);
-            ui->ch2PositionSlider->setValue(mapRange(value, maxp, minp, 128, -128) * -1);
-        } else if(currentSelected == isTriggerPixmap) {
-            triggerLevel = 511 - ui->plotterWidget->yAxis->pixelToCoord(event->y());
-            triggerLevel += offset;
-            triggerPost = ui->plotterWidget->xAxis->pixelToCoord(event->x());
-            if(triggerPost > 255)
-                triggerPost = 255;
-            else if(triggerPost < 0)
-                triggerPost = 0;
-            triggerPost = triggerPost / 2 + ui->horizontalScrollBar->value();
-            setTriggerLevelPosition(event->pos(), Other);
-        } else if(currentSelected == isTriggerWin1Pixmap) {
-            triggerWin1Level = 255 - ui->plotterWidget->yAxis->pixelToCoord(event->y()) / 2;
-            if(triggerWin1Level > triggerWin2Level - 8) {
-                triggerWin1Level = triggerWin2Level;
-                return;
+            if(ui->checkBoxCH2Trace->isChecked()) {
+                if (text != "") text += " ";
+                ch2Volts = getVolts(event->y(), ch2ZeroPos, gains[ui->ch2GainSlider->value()].value);
+                text += get4Digits(ch2Volts) + gains[ui->ch2GainSlider->value()].unit;
             }
-            triggerPost = ui->plotterWidget->xAxis->pixelToCoord(event->x());
-            if(triggerPost > 255)
-                triggerPost = 255;
-            else if(triggerPost < 0)
-                triggerPost = 0;
-            triggerPost = triggerPost / 2 + ui->horizontalScrollBar->value();
-            if(triggerWin1Level < rangeMax / 4)
-                triggerWin1Level = rangeMax / 4;
-            else if(triggerWin1Level > rangeMax * 3 / 4)
-                triggerWin1Level = rangeMax * 3 / 4;
-            setTriggerLevelPosition(event->pos(), Window1);
-        } else if(currentSelected == isTriggerWin2Pixmap) {
-            triggerWin2Level = 255 - ui->plotterWidget->yAxis->pixelToCoord(event->y()) / 2;
-            if(triggerWin2Level < triggerWin1Level - 5) {
-                triggerWin2Level = triggerWin1Level;
-                return;
-            }
-            triggerPost = ui->plotterWidget->xAxis->pixelToCoord(event->x());
-            if(triggerPost > 255)
-                triggerPost = 255;
-            else if(triggerPost < 0)
-                triggerPost = 0;
-            triggerPost = triggerPost / 2 + ui->horizontalScrollBar->value();
-            if(triggerWin2Level < rangeMax / 4)
-                triggerWin2Level = rangeMax / 4;
-            else if(triggerWin1Level > rangeMax * 3 / 4)
-                triggerWin2Level = rangeMax * 3 / 4;
-            setTriggerLevelPosition(event->pos(), Window2);
+            textLabelMousePos->setText(text);
+            m_repaint = true;
         }
-        m_repaint = true;
     }
 }
 
@@ -2322,8 +2351,8 @@ void XprotolabInterface::readDeviceSettings() {
                   (1 * ((qint64)usbDevice.inBuffer[40]))) / 100;
     logToFile("40 Desired frequency: " + QString::number(freq));
     updateSweepCursors();
-    ui->ch1Label->setText("CH1 = " + gainText[ui->ch1GainSlider->value()]);
-    ui->ch2Label->setText("CH2 = " + gainText[ui->ch2GainSlider->value()]);
+    ui->ch1Label->setText("CH1 = " + gains[ui->ch1GainSlider->value()].display + "/div");
+    ui->ch2Label->setText("CH2 = " + gains[ui->ch2GainSlider->value()].display + "/div");
     ui->timeLabel->setText("Time = " + (rateText[ui->samplingSlider->value()]));
     if(ui->samplingSlider->value() >= 11)
         logging = true;
@@ -3144,7 +3173,7 @@ void XprotolabInterface::on_ch1GainSlider_valueChanged(int value) {
     if(!usbDevice.isDeviceConnected)
         return;
     usbDevice.controlWriteTransfer(12, (byte)(value));
-    ui->ch1Label->setText("CH1 = " + gainText[ui->ch1GainSlider->value()]);
+    ui->ch1Label->setText("CH1 = " + gains[ui->ch1GainSlider->value()].display + "/div");
 }
 
 // M 13 Channel 2 gain
@@ -3152,7 +3181,7 @@ void XprotolabInterface::on_ch2GainSlider_valueChanged(int value) {
     if(!usbDevice.isDeviceConnected)
         return;
     usbDevice.controlWriteTransfer(13, (byte)(value));
-    ui->ch2Label->setText("CH2 = " + gainText[ui->ch2GainSlider->value()]);
+    ui->ch2Label->setText("CH2 = " + gains[ui->ch2GainSlider->value()].display + "/div");
 }
 
 // M 14 Horizontal Position
@@ -3576,8 +3605,8 @@ void XprotolabInterface::setupValues() {
     rateText << "8" + QString::fromStdWString(L"\u00b5") + "s/div" << "16" + QString::fromStdWString(L"\u00b5") + "s/div" << "32" + QString::fromStdWString(L"\u00b5") + "s/div" << "64" + QString::fromStdWString(L"\u00b5") + "s/div" << "128" + QString::fromStdWString(L"\u00b5") + "s/div" << "256" + QString::fromStdWString(L"\u00b5") + "s/div" << "500" + QString::fromStdWString(L"\u00b5") + "s/div" << "1ms/div"
              << "2ms/div" << "5ms/div" << "10ms/div" << "20ms/div" << "50ms/div" << "0.1s/div" << "0.2s/div" << "0.5s/div"
              << "1s/div" << "2s/div" << "5s/div" << "10s/div" << "20s/div" << "50s/div";
-    // Gain Text with x1 probe
-    gainText << "5.12V/div" << "2.56V/div" << "1.28V/div" << "0.64V/div" << "0.32V/div" << "0.16V/div" << "80mV/div" << "----";
+    // Gain with x1 probe
+    gains = {{5.12, "V", "5.12V"}, {2.56, "V", "2.56V"}, {1.28, "V", "1.28V"}, {0.64, "V", "0.64V"}, {0.32, "V", "0.32V"}, {0.16, "V", "0.16V"}, {0.08, "mV", "80mV/div"}, {NULL, NULL, "----"}};
     freqValue[0] = 10;
     int temp = 2000000, i = 1;
     for(i = 1; i < 7; i++) { // Kilo Hertz
@@ -4098,7 +4127,7 @@ void XprotolabInterface::updateCh1Label() {
             tmp_text += " X " + tmp_label2;
         }
     }
-    tmp_text += " = " + gainText[ui->ch1GainSlider->value()];
+    tmp_text += " = " + gains[ui->ch1GainSlider->value()].display + "/div";
     ui->ch1Label->setText(tmp_text);
 }
 
@@ -4121,7 +4150,7 @@ void XprotolabInterface::updateCh2Label() {
                 tmp_text += " X CH1";
         }
     }
-    tmp_text += " = " + gainText[ui->ch2GainSlider->value()];
+    tmp_text += " = " + gains[ui->ch2GainSlider->value()].display + "/div";
     ui->ch2Label->setText(tmp_text);
 }
 
@@ -4204,6 +4233,7 @@ void XprotolabInterface::on_sizeChanged() {
     textLabelDeltaVoltage->position->setPixelPoint(QPointF(max_width - 150, max_height - 55));
     textLabelVoltageB->position->setPixelPoint(QPointF(max_width - 150, max_height - 70));
     textLabelVoltageA->position->setPixelPoint(QPointF(max_width - 150, max_height - 85));
+    textLabelMousePos->position->setPixelPoint(QPointF(40, max_height - 55));
     setVerticalCursors();
 }
 
